@@ -1,0 +1,80 @@
+
+#####################
+# Logging
+
+> show variables like '%slow%';
+
+
+
+#####################
+# MYSQL SLOW QUERY LOG
+# AB 5.1.21:
+
+mysql> SET GLOBAL slow_query_log ='ON';
+mysql> SET GLOBAL long_query_time=0;  # auf millisekunden genau
+
+# Damit bekommt man ALLE Queries. Das ist oft uninteressant!
+
+# Auswerten mit:
+mysqldumpslow -s t mysql_slow.log
+
+# Zusammenspiel mit Tail:
+
+tail -n 10000 /var/lib/mysql/vaillant-debian-slow.log | mysqldumpslow -s t |less
+
+
+
+# was Entwickler wollen:
+
+tcpdump -i lo -s 0 -l -w - dst port 3306 | strings
+
+# Thanks to: http://www.mysqlperformanceblog.com/2008/11/07/poor-mans-query-logging/
+tcpdump -i lo -s 0 -l -w - dst port 3306 | strings | perl -e '
+while(<>) { chomp; next if /^[^ ]+[ ]*$/;
+     if(/^(SELECT|UPDATE|DELETE|INSERT|SET|COMMIT|ROLLBACK|CREATE|DROP|ALTER)/i) {
+         if (defined $q) { print "$qn"; }
+         $q=$_;
+     } else {
+         $_ =~ s/^[ t]+//; $q.=" $_";
+                                                                                                }
+}'
+
+
+# Abstecher:
+# für pt-tcp-model:
+tcpdump -s 384 -i lo -nnq -tttt 'tcp port 3306 and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)'   >tcp-file.txt
+
+# zurück:
+# für pt-query-digest
+tcpdump -s 65535 -x -nn -q -tttt -i lo -c 10000 port 3306 >exampletcpdump.txt
+
+pt-query-digest mysql_slow.log --group-by fingerprint --order-by Query_time:sum --limit 10 --fingerprints --report-format query_report | less
+
+tcpdump -s 65535 -x -nn -q -tttt -i lo -c 10000 port 3306 | pt-query-digest --type tcpdump --group-by fingerprint --order-by Query_time:sum --limit 10 --fingerprints --report-format query_report --explain u=root,p=root,D=vrnet_TESTING >report.txt
+
+
+# Event Attributes
+# http://code.google.com/p/maatkit/wiki/EventAttributes
+
+
+php mt-timeout-starter.php 'tcpdump -s 65535 -x -nn -q -tttt -i lo port 3306' 2 'pt-query-digest --type tcpdump --group-by fingerprint --order-by Query_time:sum --limit 1 --fingerprints --report-format query_report --explain u=root,p=root,D=vrnet_TESTING'
+
+
+
+#############################
+# Andere für Devs nützliche Tools
+
+
+pt-summary
+pt-mysql-summary
+pt-mysql-summary --databases vrnet_TESTING -- --user=root --password=root |less
+
+pt-diskstats --devices-regex 'sda$'
+
+pt-variable-advisor u=root,p=root
+
+
+pt-duplicate-key-checker u=root,p=root|less
+
+
+
